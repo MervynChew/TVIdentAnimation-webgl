@@ -1,0 +1,773 @@
+/* This code is to do control the rendering, shader conenction and the transition operation. It is the main Animation controller .js file */
+
+/*-----------------------------------------------------------------------------------*/
+// Variable Declaration
+/*-----------------------------------------------------------------------------------*/
+
+// Common variables
+var canvas, gl, program;
+var posBuffer, colBuffer, vPosition, vColor;
+var modelViewMatrixLoc, projectionMatrixLoc;
+var modelViewMatrix, projectionMatrix;
+
+// Variables referencing HTML elements
+// theta = [x, y, z]
+var startBtn,
+  restartBtn,
+  operationButton,
+  selectedOperation = [],
+  operationQueue = [],
+  currentOpIndex = 0;
+var theta = [0, 0, 0],
+  move = [0, 0, 0];
+var iterNum = 1,
+  scaleNum = 1;
+var iterTemp = 1,
+  animSeq = 0,
+  animFrame = 0,
+  animFlag = false;
+  delay = 100;
+var speedMultiplier = 1; // multiplier applied to per-frame increments (controlled by speed slider)
+var logo = "Logo3D.obj";
+
+var iterationSlider, iterationValue, depthSlider, depthValue, speedSlider, speedValue;
+
+var textSize = 2, depth = 0.1, layerNum = 30, timerID = null;
+
+// Variables for the 3D Sierpinski gasket
+var points = [],
+  colors = [];
+
+// Vertices for the 3D Sierpinski gasket (X-axis, Y-axis, Z-axis, W)
+// For 3D, you need to set the z-axis to create the perception of depth
+
+// Different colors for a tetrahedron (RGBA)
+var baseColors = [
+  vec4(1.0, 0.2, 0.4, 1.0),
+  vec4(0.0, 0.9, 1.0, 1.0),
+  vec4(0.2, 0.2, 0.5, 1.0),
+];
+
+/*-----------------------------------------------------------------------------------*/
+// WebGL Utilities
+/*-----------------------------------------------------------------------------------*/
+
+// Execute the init() function when the web page has fully loaded
+window.onload = function init() {
+  // Primitive (geometric shape/logo) initialization
+  loadLogo(logo);
+
+  // WebGL setups
+  getUIElement();
+
+  initFont("Font/static/ScienceGothic_Condensed-ExtraBold.ttf");
+};
+
+// Retrieve all elements from HTML and store in the corresponding variables, onclick thing will put here, although not sure why
+function getUIElement() {
+  canvas = document.getElementById("gl-canvas");
+
+  startBtn = document.getElementById("start-btn");
+  restartBtn = document.getElementById("restart-btn");
+
+  operationButton = document.getElementById("selected-op");
+
+  // Activate when click on the start button
+  startBtn.onclick = function () {
+    animFlag = !animFlag;
+
+    if (animFlag) {
+      // Get the selected operations from the div
+      if (!selectedOperation || selectedOperation.length === 0) {
+        const selectedDiv = document.getElementById("selected-op");
+        selectedOperation = Array.from(selectedDiv.querySelectorAll("div")).map(
+          (child) => child.textContent
+        );
+
+        let checkbox = document.getElementById("option");
+
+        console.log("Selected operations:", selectedOperation); // shows the actual values
+        queueOperation();
+        console.log(operationQueue);
+      }
+      animUpdate();
+    } else {
+      window.cancelAnimationFrame(animFrame);
+    }
+  };
+
+  // Activate when click on restart button
+  restartBtn.onclick = function () {
+    animReset = true;
+
+    if (animReset) {
+      render();
+      // window.cancelAnimationFrame(animiFrame)
+
+      // animUpdate();
+      resetValue();
+      // console.log("Is here fine?")
+      animReset = false;
+    }
+  };
+
+  // Activate when iteration slider change value. and get value
+  iterationSlider = document.getElementById("iteration-slider");
+  iterationValue = document.getElementById("iteration-value");
+  iterationValue.innerHTML = iterationSlider.value;
+
+  iterationSlider.onchange = function(event) {
+    iterationValue.innerHTML = event.target.value;
+    iterNum = iterationValue.innerHTML;
+    recompute();
+  }
+
+  // Activate when depth slider change value. and get value
+  depthSlider = document.getElementById("depth-slider");
+  depthValue = document.getElementById("depth-value");
+  depthValue.innerHTML = depthSlider.value;
+
+  depthSlider.onchange = function(event) {
+    depthValue.innerHTML = event.target.value;
+    depth = depthValue.innerHTML/10;
+    recompute();
+  }
+
+  // Activate when depth slider change value. and get value
+  speedSlider = document.getElementById("speed-slider");
+  speedValue = document.getElementById("speed-value");
+  speedValue.innerHTML = speedSlider.value;
+
+  speedSlider.oninput = function(event) {
+    speedValue.innerHTML = event.target.value;
+    // Use the slider value as a multiplier for per-frame steps.
+    speedMultiplier = Number(event.target.value);
+    recompute();
+  }
+}
+
+// Configure WebGL Settings, do not touch this!!!!! Touch at your own risk
+function configWebGL() {
+  // Initialize the WebGL context
+  gl = WebGLUtils.setupWebGL(canvas);
+
+  if (!gl) {
+    alert("WebGL isn't available");
+  }
+
+  // Set the viewport and clear the color
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(1.0, 1.0, 1.0, 1.0);
+
+  // Enable hidden-surface removal
+  gl.enable(gl.DEPTH_TEST);
+
+  // Compile the vertex and fragment shaders and link to WebGL
+  program = initShaders(gl, "vertex-shader", "fragment-shader");
+  gl.useProgram(program);
+
+  // Create buffers and link them to the corresponding attribute variables in vertex and fragment shaders
+  // Buffer for positions
+  posBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
+
+  vPosition = gl.getAttribLocation(program, "vPosition");
+  gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(vPosition);
+
+  // Buffer for colors
+  colBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, flatten(colors), gl.STATIC_DRAW);
+
+  vColor = gl.getAttribLocation(program, "vColor");
+  gl.vertexAttribPointer(vColor, 4, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(vColor);
+
+  // Get the location of the uniform variables within a compiled shader program
+  modelViewMatrixLoc = gl.getUniformLocation(program, "modelViewMatrix");
+  projectionMatrixLoc = gl.getUniformLocation(program, "projectionMatrix");
+}
+
+// Render the graphics for viewing
+function render() {
+
+  // Cancel the animation frame before performing any graphic rendering
+  if (animFlag) {
+    animFlag = false;
+    window.cancelAnimationFrame(animFrame);
+  }
+
+  setTimeout(function() {
+    // Clear the color buffer and the depth buffer before rendering a new frame
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Pass a 4x4 projection matrix from JavaScript to the GPU for use in shader
+    // ortho(left, right, bottom, top, near, far)
+    projectionMatrix = ortho(-4, 4, -2.25, 2.25, 2, -2);
+    gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
+
+    // Pass a 4x4 model view matrix from JavaScript to the GPU for use in shader
+    // Use translation to readjust the position of the primitive (if needed)
+    modelViewMatrix = mat4();
+    modelViewMatrix = mult(modelViewMatrix, translate(0, -0.2357, 0));
+
+    gl.uniformMatrix4fv(modelViewMatrixLoc, false, flatten(modelViewMatrix));
+
+    // Draw the primitive / geometric shape
+    gl.drawArrays(gl.TRIANGLES, 0, points.length);
+  },delay);
+}
+
+// Recompute points and colors, followed by reconfiguring WebGL for rendering
+function recompute() {
+  // Reset points and colors for render update
+  points = [];
+  colors = [];
+
+  loadLogo(logo);
+  configWebGL();
+  render();
+}
+
+// Up here is the original animation
+// Update the animation frame, operation all done here
+function animUpdate() {
+  // Stop the animation frame and return upon completing all sequences
+  if (iterTemp == iterNum && currentOpIndex >= operationQueue.length) {
+    window.cancelAnimationFrame(animFrame);
+    enableUI();
+    animFlag = false;
+    resetValue();
+    return; // break the self-repeating loop
+  }
+
+  // Clear the color buffer and the depth buffer before rendering a new frame
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // Set the model view matrix for vertex transformation
+  // Use translation to readjust the position of the primitive (if needed)
+  modelViewMatrix = mat4();
+  modelViewMatrix = mult(modelViewMatrix, translate(0, -0.2357, 0));
+
+  // Switch case to handle the ongoing animation sequence
+  // The animation is executed sequentially from case 0 to case n
+
+  animSeq = operationQueue[currentOpIndex];
+
+  switch (animSeq) {
+    case 0: // Animation 1
+      theta[2] -= 1 * speedMultiplier;
+
+      if (theta[2] <= -180) {
+        theta[2] = -180;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 1: // Animation 2
+      theta[2] += 1 * speedMultiplier;
+
+      if (theta[2] >= 0) {
+        theta[2] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 2: // Animation 3
+      theta[2] += 1 * speedMultiplier;
+
+      if (theta[2] >= 180) {
+        theta[2] = 180;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 3: // Animation 4
+      theta[2] -= 1 * speedMultiplier;
+
+      if (theta[2] <= 0) {
+        theta[2] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 4: // Animation 5
+      scaleNum += 0.02 * speedMultiplier;
+
+      if (scaleNum >= 4) {
+        scaleNum = 4;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 5: // Animation 6
+      scaleNum -= 0.02 * speedMultiplier;
+
+      if (scaleNum <= 0.5) {
+        scaleNum = 0.5;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 6: 
+      scaleNum += 0.02 * speedMultiplier;
+
+      if (scaleNum >= 1.2) {
+        scaleNum = 1.2;
+        currentOpIndex++;
+      }
+
+      delay /= 10.0;
+
+      break;
+
+    case 7: 
+      scaleNum -= 0.02 * speedMultiplier
+
+      if (scaleNum<=0.8) {
+        scaleNum = 0.8;
+        currentOpIndex++;
+      }
+
+      delay /= 15.0;
+
+      break;
+
+    case 8: 
+      scaleNum += 0.02 * speedMultiplier;
+
+      if (scaleNum >= 1.1) {
+        scaleNum = 1.1;
+        currentOpIndex++;
+      }
+
+      delay /= 20.0;
+
+      break;
+
+    case 9: 
+      scaleNum -= 0.02 * speedMultiplier
+
+      if (scaleNum<=1) {
+        scaleNum = 1;
+        currentOpIndex++;
+      }
+
+      delay /= 25.0;
+
+      break;
+
+    case 10: // Animation 7
+      move[0] += 0.0125 * speedMultiplier;
+      move[1] += 0.005 * speedMultiplier;
+
+      if (move[0] >= 3.0 && move[1] >= 1.2) {
+        move[0] = 3.0;
+        move[1] = 1.2;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 11: // Animation 8
+      move[0] -= 0.0125 * speedMultiplier;
+      move[1] -= 0.005 * speedMultiplier;
+
+      if (move[0] <= 0 && move[1] <= 0) {
+        move[0] = 0;
+        move[1] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 12: // Animation 9
+      move[0] -= 0.0125 * speedMultiplier;
+      move[1] -= 0.005 * speedMultiplier;
+
+      if (move[0] <= -3.0 && move[1] <= -1.2) {
+        move[0] = -3.0;
+        move[1] = -1.2;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 13: // Animation 9
+      move[0] += 0.0125 * speedMultiplier;
+      move[1] += 0.005 * speedMultiplier;
+
+      if (move[0] >= 0 && move[1] >= 0) {
+        move[0] = 0;
+        move[1] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 14:
+      move[0] -= 0.0125 * speedMultiplier;
+      move[1] += 0.005 * speedMultiplier;
+
+      if (move[0] <= -3.0 && move[1] >= 1.2) {
+        move[0] = -3.0;
+        move[1] = 1.2;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 15:
+      move[0] += 0.0125 * speedMultiplier;
+      move[1] -= 0.005 * speedMultiplier;
+
+      if (move[0] >= 0 && move[1] <= 0) {
+        move[0] = 0;
+        move[1] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 16:
+      move[0] += 0.0125 * speedMultiplier;
+      move[1] -= 0.005 * speedMultiplier;
+
+      if (move[0] >= 3.0 && move[1] <= -1.2) {
+        move[0] = 3.00;
+        move[1] = -1.2;
+        currentOpIndex++;
+      }
+
+      break;
+
+    case 17:
+      move[0] -= 0.0125 * speedMultiplier;
+      move[1] += 0.005 * speedMultiplier;
+
+      if (move[0] <= 0 && move[1] >= 0) {
+        move[0] = 0;
+        move[1] = 0;
+        currentOpIndex++;
+      }
+
+      break;
+
+    default: 
+
+      iterTemp++;
+      resetAnimation();
+      break;
+  }
+
+  // Perform vertex transformation
+  modelViewMatrix = mult(modelViewMatrix, rotateY(theta[2]));
+  modelViewMatrix = mult(modelViewMatrix, scale(scaleNum, scaleNum, 1));
+  modelViewMatrix = mult(modelViewMatrix, translate(move[0], move[1], move[2]));
+
+  // Pass the matrix to the GPU for use in shader
+  gl.uniformMatrix4fv(modelViewMatrixLoc, false, flatten(modelViewMatrix));
+
+  // Draw the primitive / geometric shape
+  gl.drawArrays(gl.TRIANGLES, 0, points.length);
+
+  console.log ("Here lei how much iterTemp", iterTemp);
+  // Schedule the next frame for a looped animation (60fps)
+  animFrame = window.requestAnimationFrame(animUpdate);
+}
+
+// Disable the UI elements when the animation is ongoing
+function disableUI() {
+  startBtn.disabled = true;
+}
+
+// Enable the UI elements after the animation is completed
+function enableUI() {
+  startBtn.disabled = false;
+}
+
+// Reset all necessary variables to their default values
+function resetValue() {
+  theta = [0, 0, 0];
+  move = [0, 0, 0];
+  scaleNum = 1;
+  animSeq = 0;
+  iterTemp = 1;
+  selectedOperation = [];
+  operationQueue = [];
+  currentOpIndex = 0;
+  delay = 100;
+}
+
+// Reset for animation variables after one iteration
+function resetAnimation() {
+  theta = [0, 0, 0];
+  move = [0, 0, 0];
+  scaleNum = 1;
+  currentOpIndex = 0;
+  delay = 0;
+}
+
+// Queue operation, basically just read the operation and assign operation code (can see in function animUpdate())
+function queueOperation() {
+  for (const i of selectedOperation) {
+    if (i == "RotationR") {
+      operationQueue.push(0);
+      operationQueue.push(1);
+    } else if (i == "RotationL") {
+      operationQueue.push(2);
+      operationQueue.push(3);
+    } else if (i == "Zoom") {
+      operationQueue.push(4);
+      operationQueue.push(5);
+      operationQueue.push(6);
+      operationQueue.push(7);
+      operationQueue.push(8);
+      operationQueue.push(9);
+    } else if (i == "BouncingTR") {
+      operationQueue.push(10);
+      operationQueue.push(11);
+    } else if (i == "BouncingBL") {
+      operationQueue.push(12);
+      operationQueue.push(13);
+    }
+    else if (i == "BouncingTL") {
+      operationQueue.push(14);
+      operationQueue.push(15);
+    } else if (i == "BouncingBR") {
+      operationQueue.push(16);
+      operationQueue.push(17);
+    }
+  }
+}
+
+// To change color, maximum 3 color and if more than 3 will loop back. Delete button can control the color as well
+function getColor(event) {
+
+    let color = hex2rgb(event.target.value);
+
+    // CLEAR previous data
+    if (baseColors.length >= 3) {
+      baseColors = [];
+      points = [];
+      colors = [];
+    }
+
+    baseColors.push(color);
+    let showColor = document.querySelector('#color-list');
+    showColor.innerHTML = ""; // clear existing items
+
+    for (let i = 0; i < baseColors.length; i++) {
+      let colorValue = rgbToHex(baseColors[i]); // capture the color for this iteration
+
+      let vec = baseColors[i];
+      let list = document.createElement("li");
+      list.textContent = colorValue; // show the color value
+
+      let button = document.createElement("button");
+      button.className = 'delete-btn';
+      button.textContent = "Delete";
+
+      button.addEventListener("click", () => {
+          // Remove from DOM
+          list.remove();
+
+          // Remove from baseColors using value, safer than using i
+          const index = baseColors.indexOf(vec);
+          if (index > -1) baseColors.splice(index, 1);
+
+          // Clear old points/colors before reloading
+          points = [];
+          colors = [];
+
+          if (baseColors.length === 0) {
+            baseColors = [
+              vec4(1.0, 0.2, 0.4, 1.0),
+              vec4(0.0, 0.9, 1.0, 1.0),
+              vec4(0.2, 0.2, 0.5, 1.0),
+            ];
+          }
+
+          // Reload the logo with updated colors
+          loadLogo(logo);
+
+          console.log("baseColors after delete:", baseColors);
+      });
+
+      list.appendChild(button);
+      showColor.appendChild(list);
+  }
+
+  // Only call loadLogo once after creating all list items
+  points = [];
+  colors = [];
+  loadLogo(logo);
+}
+
+// Convert hex color value to rgb
+function hex2rgb(hex) {
+
+    const opacity = 1.0;
+
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    
+    // return {r, g, b} 
+    return vec4(r, g, b, opacity);
+}
+
+// Convert hex rgb value to hex here
+function componentToHex(c) {
+  const hex = Math.round(c * 255).toString(16);
+  return hex.length == 1 ? "0" + hex : hex;
+}
+
+// Pass one element by one element to the convertion function
+function rgbToHex(vec) {
+  return "#" + componentToHex(vec[0]) + componentToHex(vec[1]) + componentToHex(vec[2]);
+}
+
+// This replace loadLogo
+let currentFont = null;
+
+// 1. Call this once in your init() to load the font file
+function initFont(fontUrl) {
+    opentype.load(fontUrl, function(err, font) {
+        if (err) {
+            console.error('Font could not be loaded: ' + err);
+        } else {
+            currentFont = font;
+            // Load default text once font is ready
+            updateTextGeometry("Hello"); 
+        }
+    });
+}
+
+// 2. Call this whenever the user inputs new text
+function updateTextGeometry(textString) {
+    if (!currentFont) return;
+
+    points = []; 
+    colors = [];
+    let zValue = [];
+    let layerSpace = depth/layerNum;
+
+    zValue.push(0.0);
+    for (let i=0; i<(layerNum/2); i++) {
+      zValue.push(i*layerSpace);
+      zValue.push(-i * layerSpace);
+    }
+
+
+    // const frontqZ = depth/2;
+    // const backZ = -depth/2;
+    // CHANGE 1: Generate text at 0,0. Let the helper function handle positioning later.
+    // 4 is the fontSize (scale), you can adjust this number to match your OBJ size.
+    const path = currentFont.getPath(textString, 0, 0, textSize/2); 
+    
+    const contours = convertPathToContours(path);
+
+    contours.forEach(contour => {
+      const flatPoints = contour.flatMap(p => [p.x, p.y]);
+      const indices = earcut(flatPoints);
+
+      for (let i = 0; i < indices.length; i += 3) {
+        const idxA = indices[i];
+        const idxB = indices[i + 1];
+        const idxC = indices[i + 2];
+
+        for (let k=0; k<layerNum; k++) {
+          const v1 = vec4(contour[idxA].x, contour[idxA].y, zValue[k], 1.0);
+          const v2 = vec4(contour[idxB].x, contour[idxB].y, zValue[k], 1.0);
+          const v3 = vec4(contour[idxC].x, contour[idxC].y, zValue[k], 1.0);
+          points.push(v1, v2, v3);
+
+          // --- 3. Colors ---
+          // FIX B: You added 6 vertices (v1...v6), so you must add 6 colors!
+          for (let k = 0; k < 6; k++) {
+              // Use % to cycle safely through your baseColors list
+              let colorIndex = (points.length + k) % baseColors.length;
+              colors.push(baseColors[colorIndex]);
+          }
+        }
+      }        
+    });
+
+    // CHANGE 2: Call the centering function here!
+    centerVertices(points);
+
+    configWebGL();
+    render();
+}
+
+// Helper: Converts Font commands (Curves) into simple X/Y points
+function convertPathToContours(path) {
+    const contours = [];
+    let currentContour = [];
+
+    path.commands.forEach(cmd => {
+        if (cmd.type === 'M') { // Move to (Start of new shape)
+            if (currentContour.length > 0) {
+                contours.push(currentContour);
+            }
+            currentContour = [{x: cmd.x, y: -cmd.y}]; // Flip Y for WebGL
+        } else if (cmd.type === 'L') { // Line
+            currentContour.push({x: cmd.x, y: -cmd.y});
+        } else if (cmd.type === 'Q') { // Quadratic Curve (simplify to line)
+            currentContour.push({x: cmd.x, y: -cmd.y}); 
+        } else if (cmd.type === 'C') { // Cubic Curve (simplify to line)
+             currentContour.push({x: cmd.x, y: -cmd.y});
+        } else if (cmd.type === 'Z') { // Close path
+             // shape finished
+        }
+    });
+    if (currentContour.length > 0) contours.push(currentContour);
+    return contours;
+}
+
+function loadLogo() {
+    const text = document.getElementById('userText').value;
+    updateTextGeometry(text);
+}
+
+function centerVertices(points) {
+    if (points.length === 0) return;
+
+    // 1. Initialize min/max with the first point's coordinates
+    let minX = points[0][0];
+    let maxX = points[0][0];
+    let minY = points[0][1];
+    let maxY = points[0][1];
+
+    // 2. Find the bounding box (min and max X/Y)
+    for (let i = 1; i < points.length; i++) {
+        let x = points[i][0];
+        let y = points[i][1];
+
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    }
+
+    // 3. Calculate the center of the text
+    let centerX = (minX + maxX) / 2;
+    let centerY = (minY + maxY) / 2;
+
+    // 4. Shift all points so the center becomes (0,0)
+    for (let i = 0; i < points.length; i++) {
+        points[i][0] -= centerX;
+        points[i][1] -= centerY;
+    }
+}
+
+/*-----------------------------------------------------------------------------------*/
