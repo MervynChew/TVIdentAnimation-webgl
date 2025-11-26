@@ -7,7 +7,7 @@ function toggleDropdown() {
 
 // Make sure that the selection close when click on other place
 window.onclick = function(event) {
-    if (!event.target.matches('.dropdown button') && !event.target.closest('.dropdown-content')) {
+    if (!event.target.matches('.dropdown button')) {
         let dropdowns = document.getElementsByClassName("dropdown-content");
         for (let i = 0; i < dropdowns.length; i++) {
             let openDropdown = dropdowns[i];
@@ -110,11 +110,10 @@ document.addEventListener('DOMContentLoaded', function() {
             let selectedItems = document.getElementById("selected-op")
             selectedItems.innerHTML = selectedTextarea.innerHTML;
             console.log("Fetched value:", text);
-
-            resetAndRecompute(); // reset the animation when new transition is selected
         } else {
             alert("Please select a textarea first!");
         }
+        
         
         const checkedBoxes = document.querySelectorAll('.dropdown-content input[type="checkbox"]');
         const selectedItems = document.querySelectorAll('.selected-items > div');
@@ -135,8 +134,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Add task to the pre-set transition set
 function addTask() {
-    let labelValues = ["Right Rotation", "Left Rotation", "Zoom in", "Zoom out", "Bouncing top right", "Bouncing bottom left", "Bouncing top left", "Bouncing bottom right"];
-    let trueLabel = ["RotationR", "RotationL", "ZoomIn", "ZoomOut", "BouncingTR", "BouncingBL", "BouncingTL", "BouncingBR"]
+    let labelValues = ["Right Rotation", "Left Rotation", "Zoon in and Out", "Bouncing top right", "Bouncing bottom left", "Bouncing top left", "Bouncing bottom right"];
+    let trueLabel = ["RotationR", "RotationL", "Zoom", "BouncingTR", "BouncingBL", "BouncingTL", "BouncingBR"]
     let taskList = document.getElementsByClassName("transition-list")[0];
 
     let divBox = document.createElement("div");
