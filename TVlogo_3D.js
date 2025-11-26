@@ -248,6 +248,7 @@ function getUIElement() {
   // Activate when depth slider change value. and get value
   speedSlider = document.getElementById("speed-slider");
   speedValue = document.getElementById("speed-value");
+  speedValue.innerHTML = speedSlider.value;
 
   speedSlider.oninput = function(event) {
     speedValue.innerHTML = event.target.value;
