@@ -54,14 +54,68 @@ var baseColors = [
 
 // Execute the init() function when the web page has fully loaded
 window.onload = function init() {
+  
+  canvas = document.getElementById("gl-canvas");
+
+  // set initial canvas to 80% of window size
+  canvas.width = window.innerWidth * 0.8;
+  canvas.height = window.innerHeight * 0.8;
+  
   // Primitive (geometric shape/logo) initialization
   loadLogo(logo);
 
   // WebGL setups
   getUIElement();
 
+  // window resize listener
+  window.addEventListener("resize", onWindowResize);
+
+
   initFont("Font/static/ScienceGothic_Condensed-ExtraBold.ttf");
 };
+
+// function will be called whenever there is a window resize
+function onWindowResize() {
+  // scale the canvas to 80% of window size
+  canvas.width = window.innerWidth * 0.8;
+  canvas.height = window.innerHeight * 0.8;
+
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  projectionMatrix = ortho(-4, 4, -2.25, 2.25, 2, -2);
+  gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
+
+  // render current frame again to adjust to new size
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  modelViewMatrix = mat4();
+  modelViewMatrix = mult(modelViewMatrix, translate(0, -0.2357, 0));
+  modelViewMatrix = mult(modelViewMatrix, rotateY(theta[2]));
+  modelViewMatrix = mult(modelViewMatrix, scale(scaleNum, scaleNum, 1));
+  modelViewMatrix = mult(modelViewMatrix, translate(move[0], move[1], move[2]));
+  gl.uniformMatrix4fv(modelViewMatrixLoc, false, flatten(modelViewMatrix));
+  gl.drawArrays(gl.TRIANGLES, 0, points.length);
+}
+
+
+// function to reset all the animation whenever there is any changes in depth, iteration, speed or color
+function resetAndRecompute() {
+    if (animFlag) window.cancelAnimationFrame(animFrame);
+
+    animReset = true;
+    resetValue();  // reset theta, move, scaleNum, etc.
+
+    // get the latest selected operations
+    const selectedDiv = document.getElementById("selected-op");
+    selectedOperation = Array.from(selectedDiv.querySelectorAll("div")).map(c => c.textContent);
+    queueOperation();
+
+    // recompute points/colors and render
+    recompute();
+
+    animReset = false;
+
+    if (animFlag) animUpdate();  // restart animation if it was running
+}
 
 // Retrieve all elements from HTML and store in the corresponding variables, onclick thing will put here, although not sure why
 function getUIElement() {
@@ -71,6 +125,50 @@ function getUIElement() {
   restartBtn = document.getElementById("restart-btn");
 
   operationButton = document.getElementById("selected-op");
+
+  // set default transitions
+  const defaultTransitions = ["RotationR", "RotationL", "ZoomIn"];
+
+  // initialize dropdown checkboxes with default transitions
+  document.querySelectorAll('.dropdown-content input[type="checkbox"]').forEach(box => {
+      // If the checkbox value is in defaults, check it visually
+      if (defaultTransitions.includes(box.value)) {
+          box.checked = true;
+      }
+
+      // Listen for changes
+      box.addEventListener('change', () => {
+          const selectedDiv = document.getElementById("selected-op");
+
+          // Remove the item if it exists
+          const existingItem = selectedDiv.querySelector(`[data-value="${box.value}"]`);
+          if (!box.checked && existingItem) {
+              existingItem.remove();
+          }
+
+          // Add the item if checked and not already present
+          if (box.checked && !existingItem) {
+              const div = document.createElement("div");
+              div.setAttribute("data-value", box.value);
+              div.innerText = box.value;
+              selectedDiv.appendChild(div);
+          }
+
+          // Reset animation whenever checkbox changes
+          resetAndRecompute();
+      });
+  });
+
+  // On page load, populate selectedOperation with default checked items
+  const selectedDiv = document.getElementById("selected-op");
+  selectedDiv.innerHTML = ""; // clear any previous content
+  document.querySelectorAll('.dropdown-content input[type="checkbox"]:checked').forEach(box => {
+      const div = document.createElement("div");
+      div.setAttribute("data-value", box.value);
+      div.innerText = box.value;
+      selectedDiv.appendChild(div);
+  });
+
 
   // Activate when click on the start button
   startBtn.onclick = function () {
@@ -90,11 +188,24 @@ function getUIElement() {
         queueOperation();
         console.log(operationQueue);
       }
+      disableUI()
       animUpdate();
     } else {
       window.cancelAnimationFrame(animFrame);
+      enableUI();
     }
   };
+
+  // keydown for spacebar to start or pause the animation
+  window.addEventListener("keydown", function(event) {
+      // Avoid triggering when typing in input fields
+      if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
+
+      if (event.code === "Space") {
+          event.preventDefault();
+          startBtn.onclick();
+      }
+  });
 
   // Activate when click on restart button
   restartBtn.onclick = function () {
@@ -106,7 +217,6 @@ function getUIElement() {
 
       // animUpdate();
       resetValue();
-      // console.log("Is here fine?")
       animReset = false;
     }
   };
@@ -119,31 +229,53 @@ function getUIElement() {
   iterationSlider.onchange = function(event) {
     iterationValue.innerHTML = event.target.value;
     iterNum = iterationValue.innerHTML;
-    recompute();
+    resetAndRecompute();
   }
 
   // Activate when depth slider change value. and get value
   depthSlider = document.getElementById("depth-slider");
   depthValue = document.getElementById("depth-value");
-  depthValue.innerHTML = depthSlider.value;
+  depthSlider.value = 2;
+  depthValue.innerHTML = "2";
+  depth = 2 / 10;
 
   depthSlider.onchange = function(event) {
     depthValue.innerHTML = event.target.value;
     depth = depthValue.innerHTML/10;
-    recompute();
+    resetAndRecompute();
   }
 
   // Activate when depth slider change value. and get value
   speedSlider = document.getElementById("speed-slider");
   speedValue = document.getElementById("speed-value");
-  speedValue.innerHTML = speedSlider.value;
+  speedSlider.value = 3;
+  speedValue.innerHTML = "3";
+  speedMultiplier = 3;
 
   speedSlider.oninput = function(event) {
     speedValue.innerHTML = event.target.value;
     // Use the slider value as a multiplier for per-frame steps.
     speedMultiplier = Number(event.target.value);
-    recompute();
+    resetAndRecompute();
   }
+
+  // if there is any changes in the checkbox in the dropdown, reset the animation
+  document.querySelectorAll('.dropdown-content input[type="checkbox"]').forEach(box => {
+    box.addEventListener('change', resetAndRecompute);
+  });
+
+  const colorList = document.getElementById('color-list');
+
+  //create a mutation observer to see the changes of the color list
+  const observer = new MutationObserver(() => { 
+    resetAndRecompute();
+  });
+
+  // start to observe the changes in the color list
+  observer.observe(colorList, { 
+    childList: true // observe addition or removal of the color
+  });
+
 }
 
 // Configure WebGL Settings, do not touch this!!!!! Touch at your own risk
@@ -234,13 +366,12 @@ function recompute() {
 // Up here is the original animation
 // Update the animation frame, operation all done here
 function animUpdate() {
-  // Stop the animation frame and return upon completing all sequences
-  if (iterTemp == iterNum && currentOpIndex >= operationQueue.length) {
-    window.cancelAnimationFrame(animFrame);
-    enableUI();
-    animFlag = false;
-    resetValue();
-    return; // break the self-repeating loop
+  // If no operations selected, do nothing
+  if (!operationQueue || operationQueue.length === 0) {
+      window.cancelAnimationFrame(animFrame);
+      enableUI();
+      animFlag = false;
+      return; // nothing to animate
   }
 
   // Clear the color buffer and the depth buffer before rendering a new frame
@@ -254,224 +385,273 @@ function animUpdate() {
   // Switch case to handle the ongoing animation sequence
   // The animation is executed sequentially from case 0 to case n
 
-  animSeq = operationQueue[currentOpIndex];
+  if (currentOpIndex < operationQueue.length) {
+    animSeq = operationQueue[currentOpIndex];
 
-  switch (animSeq) {
-    case 0: // Animation 1
-      theta[2] -= 1 * speedMultiplier;
+    switch (animSeq) {
+      case 0: // Animation 1
+        theta[2] -= 1 * speedMultiplier;
 
-      if (theta[2] <= -180) {
-        theta[2] = -180;
-        currentOpIndex++;
-      }
+        if (theta[2] <= -180) {
+          theta[2] = -180;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 1: // Animation 2
-      theta[2] += 1 * speedMultiplier;
+      case 1: // Animation 2
+        theta[2] += 1 * speedMultiplier;
 
-      if (theta[2] >= 0) {
-        theta[2] = 0;
-        currentOpIndex++;
-      }
+        if (theta[2] >= 0) {
+          theta[2] = 0;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 2: // Animation 3
-      theta[2] += 1 * speedMultiplier;
+      case 2: // Animation 3
+        theta[2] += 1 * speedMultiplier;
 
-      if (theta[2] >= 180) {
-        theta[2] = 180;
-        currentOpIndex++;
-      }
+        if (theta[2] >= 180) {
+          theta[2] = 180;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 3: // Animation 4
-      theta[2] -= 1 * speedMultiplier;
+      case 3: // Animation 4
+        theta[2] -= 1 * speedMultiplier;
 
-      if (theta[2] <= 0) {
-        theta[2] = 0;
-        currentOpIndex++;
-      }
+        if (theta[2] <= 0) {
+          theta[2] = 0;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 4: // Animation 5
-      scaleNum += 0.02 * speedMultiplier;
+      case 4: // Animation 5
+        scaleNum += 0.02 * speedMultiplier;
 
-      if (scaleNum >= 4) {
-        scaleNum = 4;
-        currentOpIndex++;
-      }
+        if (scaleNum >= 2.3) {
+          scaleNum = 2.3;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 5: // Animation 6
-      scaleNum -= 0.02 * speedMultiplier;
+      case 5: // Animation 6
+        scaleNum -= 0.02 * speedMultiplier;
 
-      if (scaleNum <= 0.5) {
-        scaleNum = 0.5;
-        currentOpIndex++;
-      }
+        if (scaleNum <= 1.8) {
+          scaleNum = 1.8;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 10.0;
 
-    case 6: 
-      scaleNum += 0.02 * speedMultiplier;
+        break;
 
-      if (scaleNum >= 1.2) {
-        scaleNum = 1.2;
-        currentOpIndex++;
-      }
+      case 6: // Animation 7
+        scaleNum += 0.02 * speedMultiplier;
 
-      delay /= 10.0;
+        if (scaleNum >= 2.2) {
+          scaleNum = 2.2;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 15.0;
 
-    case 7: 
-      scaleNum -= 0.02 * speedMultiplier
+        break;
 
-      if (scaleNum<=0.8) {
-        scaleNum = 0.8;
-        currentOpIndex++;
-      }
+      case 7: // Animation 8
+        scaleNum -= 0.02 * speedMultiplier;
 
-      delay /= 15.0;
+        if (scaleNum <= 1.9) {
+          scaleNum = 1.9;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 20.0;
 
-    case 8: 
-      scaleNum += 0.02 * speedMultiplier;
+        break;
 
-      if (scaleNum >= 1.1) {
-        scaleNum = 1.1;
-        currentOpIndex++;
-      }
+      case 8: // Animation 9
+        scaleNum += 0.02 * speedMultiplier;
 
-      delay /= 20.0;
+        if (scaleNum >= 2) {
+          scaleNum = 2;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 25.0;
 
-    case 9: 
-      scaleNum -= 0.02 * speedMultiplier
+        break;
 
-      if (scaleNum<=1) {
-        scaleNum = 1;
-        currentOpIndex++;
-      }
+      case 9: // Animation 10
+        scaleNum -= 0.02 * speedMultiplier;
 
-      delay /= 25.0;
+        if (scaleNum <= 0.5) {
+          scaleNum = 0.5;
+          currentOpIndex++;
+        }
 
-      break;
+        break;
 
-    case 10: // Animation 7
-      move[0] += 0.0125 * speedMultiplier;
-      move[1] += 0.005 * speedMultiplier;
+      case 10: // Animation 11
+        scaleNum += 0.02 * speedMultiplier;
 
-      if (move[0] >= 3.0 && move[1] >= 1.2) {
-        move[0] = 3.0;
-        move[1] = 1.2;
-        currentOpIndex++;
-      }
+        if (scaleNum >= 1.2) {
+          scaleNum = 1.2;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 10.0;
 
-    case 11: // Animation 8
-      move[0] -= 0.0125 * speedMultiplier;
-      move[1] -= 0.005 * speedMultiplier;
+        break;
 
-      if (move[0] <= 0 && move[1] <= 0) {
-        move[0] = 0;
-        move[1] = 0;
-        currentOpIndex++;
-      }
+      case 11: // Animation 12
+        scaleNum -= 0.02 * speedMultiplier
 
-      break;
+        if (scaleNum<=0.8) {
+          scaleNum = 0.8;
+          currentOpIndex++;
+        }
 
-    case 12: // Animation 9
-      move[0] -= 0.0125 * speedMultiplier;
-      move[1] -= 0.005 * speedMultiplier;
+        delay /= 15.0;
 
-      if (move[0] <= -3.0 && move[1] <= -1.2) {
-        move[0] = -3.0;
-        move[1] = -1.2;
-        currentOpIndex++;
-      }
+        break;
 
-      break;
+      case 12: // Animation 13
+        scaleNum += 0.02 * speedMultiplier;
 
-    case 13: // Animation 9
-      move[0] += 0.0125 * speedMultiplier;
-      move[1] += 0.005 * speedMultiplier;
+        if (scaleNum >= 1.1) {
+          scaleNum = 1.1;
+          currentOpIndex++;
+        }
 
-      if (move[0] >= 0 && move[1] >= 0) {
-        move[0] = 0;
-        move[1] = 0;
-        currentOpIndex++;
-      }
+        delay /= 20.0;
 
-      break;
+        break;
 
-    case 14:
-      move[0] -= 0.0125 * speedMultiplier;
-      move[1] += 0.005 * speedMultiplier;
+      case 13: // Animation 14
+        scaleNum -= 0.02 * speedMultiplier
 
-      if (move[0] <= -3.0 && move[1] >= 1.2) {
-        move[0] = -3.0;
-        move[1] = 1.2;
-        currentOpIndex++;
-      }
+        if (scaleNum<=1) {
+          scaleNum = 1;
+          currentOpIndex++;
+        }
 
-      break;
+        delay /= 25.0;
 
-    case 15:
-      move[0] += 0.0125 * speedMultiplier;
-      move[1] -= 0.005 * speedMultiplier;
+        break;
 
-      if (move[0] >= 0 && move[1] <= 0) {
-        move[0] = 0;
-        move[1] = 0;
-        currentOpIndex++;
-      }
+      case 14: // Animation 15
+        move[0] += 0.0125 * speedMultiplier;
+        move[1] += 0.005 * speedMultiplier;
 
-      break;
+        if (move[0] >= 2.5 / scaleNum && move[1] >= 1.0 / scaleNum) {
+          move[0] = 2.5 / scaleNum;
+          move[1] = 1.0 / scaleNum;
+          currentOpIndex++;
+        }
+        break;
 
-    case 16:
-      move[0] += 0.0125 * speedMultiplier;
-      move[1] -= 0.005 * speedMultiplier;
+      case 15: // Animation 16
+        move[0] -= 0.0125 * speedMultiplier;
+        move[1] -= 0.005 * speedMultiplier;
 
-      if (move[0] >= 3.0 && move[1] <= -1.2) {
-        move[0] = 3.00;
-        move[1] = -1.2;
-        currentOpIndex++;
-      }
+        if (move[0] <= 0 && move[1] <= 0) {
+          move[0] = 0;
+          move[1] = 0;
+          currentOpIndex++;
+        }
+        break;
 
-      break;
+      case 16: // Animation 17
+        move[0] -= 0.0125 * speedMultiplier;
+        move[1] -= 0.005 * speedMultiplier;
 
-    case 17:
-      move[0] -= 0.0125 * speedMultiplier;
-      move[1] += 0.005 * speedMultiplier;
+        if (move[0] <= -2.5 / scaleNum && move[1] <= -1.0 / scaleNum) {
+          move[0] = -2.5 / scaleNum;
+          move[1] = -1.0 / scaleNum;
+          currentOpIndex++;
+        }
+        break;
 
-      if (move[0] <= 0 && move[1] >= 0) {
-        move[0] = 0;
-        move[1] = 0;
-        currentOpIndex++;
-      }
+      case 17: // Animation 18
+        move[0] += 0.0125 * speedMultiplier;
+        move[1] += 0.005 * speedMultiplier;
 
-      break;
+        if (move[0] >= 0 && move[1] >= 0) {
+          move[0] = 0;
+          move[1] = 0;
+          currentOpIndex++;
+        }
+        break;
 
-    default: 
+      case 18: // Animation 19
+        move[0] -= 0.0125 * speedMultiplier;
+        move[1] += 0.005 * speedMultiplier;
 
-      iterTemp++;
-      resetAnimation();
-      break;
+        if (move[0] <= -2.5 / scaleNum && move[1] >= 1.0 / scaleNum) {
+          move[0] = -2.5 / scaleNum;
+          move[1] = 1.0 / scaleNum;
+          currentOpIndex++;
+        }
+        break;
+
+      case 19: // Animation 20
+        move[0] += 0.0125 * speedMultiplier;
+        move[1] -= 0.005 * speedMultiplier;
+
+        if (move[0] >= 0 && move[1] <= 0) {
+          move[0] = 0;
+          move[1] = 0;
+          currentOpIndex++;
+        }
+        break;
+
+      case 20: // Animation 21
+        move[0] += 0.0125 * speedMultiplier;
+        move[1] -= 0.005 * speedMultiplier;
+
+        if (move[0] >= 2.5 / scaleNum && move[1] <= -1.0 / scaleNum) {
+          move[0] = 2.5 / scaleNum;
+          move[1] = -1.0 / scaleNum;
+          currentOpIndex++;
+        }
+        break;
+
+      case 21: // Animation 22
+        move[0] -= 0.0125 * speedMultiplier;
+        move[1] += 0.005 * speedMultiplier;
+
+        if (move[0] <= 0 && move[1] >= 0) {
+          move[0] = 0;
+          move[1] = 0;
+          currentOpIndex++;
+        }
+        break;
+
+
+      default: 
+
+        iterTemp++;
+        resetAnimation();
+        break;
+    } 
+  } 
+  else { // if animation sequence set by user is completed, let the object "move about"
+    enableUI();
+    const floatSpeed = 0.003;
+    move[0] += floatSpeed * Math.sin(Date.now() * 0.002);
+    move[1] += floatSpeed * Math.cos(Date.now() * 0.002);
   }
 
   // Perform vertex transformation
-  modelViewMatrix = mult(modelViewMatrix, rotateY(theta[2]));
+  modelViewMatrix = mult(modelViewMatrix, translate(move[0], move[1], move[2])); // translation will perform first because if we perform scale first, it will affect the transition distance and end up will let the object out of the canvas
   modelViewMatrix = mult(modelViewMatrix, scale(scaleNum, scaleNum, 1));
-  modelViewMatrix = mult(modelViewMatrix, translate(move[0], move[1], move[2]));
+  modelViewMatrix = mult(modelViewMatrix, rotateY(theta[2]));
 
   // Pass the matrix to the GPU for use in shader
   gl.uniformMatrix4fv(modelViewMatrixLoc, false, flatten(modelViewMatrix));
@@ -484,14 +664,48 @@ function animUpdate() {
   animFrame = window.requestAnimationFrame(animUpdate);
 }
 
-// Disable the UI elements when the animation is ongoing
+// disable all UI elements when the animation is on going
 function disableUI() {
-  startBtn.disabled = true;
+
+  document.getElementById("restart-btn").disabled = true;
+  document.querySelector(".add-transition-button").disabled = true;
+  document.getElementById("selected-transition").disabled = true;
+
+  document.getElementById("iteration-slider").disabled = true;
+  document.getElementById("depth-slider").disabled = true;
+  document.getElementById("speed-slider").disabled = true;
+
+  document.getElementById("color-picker").disabled = true;
+
+  document.querySelector(".dropdown > button").disabled = true;
+
+  document.querySelectorAll('#options input[type="checkbox"]').forEach(cb => cb.disabled = true);
+
+  document.querySelectorAll('.addTask-button input[type="checkbox"]').forEach(cb => cb.disabled = true);
+
+  document.querySelectorAll('.delete-btn').forEach(btn => btn.disabled = true);
 }
 
-// Enable the UI elements after the animation is completed
+// enable all UI elements when the animation is pause or stop
 function enableUI() {
-  startBtn.disabled = false;
+
+  document.getElementById("restart-btn").disabled = false;
+  document.querySelector(".add-transition-button").disabled = false;
+  document.getElementById("selected-transition").disabled = false;
+
+  document.getElementById("iteration-slider").disabled = false;
+  document.getElementById("depth-slider").disabled = false;
+  document.getElementById("speed-slider").disabled = false;
+
+  document.getElementById("color-picker").disabled = false;
+
+  document.querySelector(".dropdown > button").disabled = false;
+
+  document.querySelectorAll('#options input[type="checkbox"]').forEach(cb => cb.disabled = false);
+
+  document.querySelectorAll('.addTask-button input[type="checkbox"]').forEach(cb => cb.disabled = false);
+
+  document.querySelectorAll('.delete-btn').forEach(btn => btn.disabled = false);
 }
 
 // Reset all necessary variables to their default values
@@ -525,26 +739,31 @@ function queueOperation() {
     } else if (i == "RotationL") {
       operationQueue.push(2);
       operationQueue.push(3);
-    } else if (i == "Zoom") {
+    } else if (i == "ZoomIn") {
       operationQueue.push(4);
       operationQueue.push(5);
       operationQueue.push(6);
       operationQueue.push(7);
       operationQueue.push(8);
+    } else if (i == "ZoomOut") {
       operationQueue.push(9);
-    } else if (i == "BouncingTR") {
       operationQueue.push(10);
       operationQueue.push(11);
-    } else if (i == "BouncingBL") {
       operationQueue.push(12);
       operationQueue.push(13);
-    }
-    else if (i == "BouncingTL") {
+    } else if (i == "BouncingTR") {
       operationQueue.push(14);
       operationQueue.push(15);
-    } else if (i == "BouncingBR") {
+    } else if (i == "BouncingBL") {
       operationQueue.push(16);
       operationQueue.push(17);
+    }
+    else if (i == "BouncingTL") {
+      operationQueue.push(18);
+      operationQueue.push(19);
+    } else if (i == "BouncingBR") {
+      operationQueue.push(20);
+      operationQueue.push(21);
     }
   }
 }
@@ -647,7 +866,7 @@ function initFont(fontUrl) {
         } else {
             currentFont = font;
             // Load default text once font is ready
-            updateTextGeometry("Hello"); 
+            updateTextGeometry("YSQD"); 
         }
     });
 }
@@ -733,6 +952,15 @@ function convertPathToContours(path) {
     if (currentContour.length > 0) contours.push(currentContour);
     return contours;
 }
+
+// an event listener for the textbox if user press enter key after finish key in the logo text
+const userInput = document.getElementById("userText");
+userInput.addEventListener("keydown", function(event) {
+  if (event.key === "Enter") {
+      loadLogo(); // load new logo text based on user input
+      resetAndRecompute();// reset animation once new input is given
+  }
+});
 
 function loadLogo() {
     const text = document.getElementById('userText').value;

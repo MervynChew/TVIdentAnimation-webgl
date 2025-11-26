@@ -58,15 +58,15 @@
 
 	<!-- Canvas for the graphic rendering -->
 	<div class="canvas">
-		<canvas id="gl-canvas" width="1280" height="720">
+		<canvas id="gl-canvas">
 			Error: your browser doesn't support the HTML5 canvas element
 		</canvas>
 	</div>
 
 	<!-- Added to solve load logo problem -->
 	<div style="position: absolute; top: 10px; left: 10px; color: white;">
-    <input type="text" id="userText" value="Hello" />
-    <button onclick="loadLogo()">Generate 3D Logo</button>
+    <input type="text" id="userText" value="YSQD" maxlength="4"/>
+    <button onclick="loadLogo(); resetAndRecompute();">Generate 3D Logo</button>
 	</div>
 
 	<!-- Div for the side edit plane -->
@@ -90,13 +90,13 @@
 
 			<!-- Div for depth slider -->
 			<div class="depth-slider-container">
-				<input class="depth-slider-class" id="depth-slider" type="range" min="1" max="5" step="1" value="1" />
+				<input class="depth-slider-class" id="depth-slider" type="range" min="1" max="5" step="1" value="2" />
 				<p>Depth: <span id="depth-value"></span></p>
 			</div>
 
 			<!-- Div for speed slider -->
 			<div class="speed-slider-container">
-				<input class="speed-slider-class" id="speed-slider" type="range" min="1" max="5" step="1" value="1" />
+				<input class="speed-slider-class" id="speed-slider" type="range" min="1" max="5" step="1" value="3" />
 				<p>Speed: <span id="speed-value"></span></p>
 			</div>
 
@@ -118,7 +118,8 @@
 			<div id="options" class="dropdown-content">
 					<label><input type="checkbox" value="RotationR"> Right Rotation</label>
 					<label><input type="checkbox" value="RotationL"> Left Rotation</label>
-					<label><input type="checkbox" value="Zoom"> Zoom in and out</label>
+					<label><input type="checkbox" value="ZoomIn"> Zoom in</label>
+					<label><input type="checkbox" value="ZoomOut"> Zoom out</label>
 					<label><input type="checkbox" value="BouncingTR"> Bouncing top right</label>
 					<label><input type="checkbox" value="BouncingBL"> Bouncing bottom left</label>
 					<label><input type="checkbox" value="BouncingTL"> Bouncing top left</label>
