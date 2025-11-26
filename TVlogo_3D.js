@@ -80,12 +80,14 @@ function onWindowResize() {
   canvas.width = window.innerWidth * 0.8;
   canvas.height = window.innerHeight * 0.8;
 
+  // update the WebGL viewport so that it matches the new canvas size
   gl.viewport(0, 0, canvas.width, canvas.height);
 
+  // recalculate the projection matrix with the new canvas ratio
   projectionMatrix = ortho(-4, 4, -2.25, 2.25, 2, -2);
   gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
-  // render current frame again to adjust to new size
+  // render current frame again to adjust it so that it fits the new canvas size
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   modelViewMatrix = mat4();
   modelViewMatrix = mult(modelViewMatrix, translate(0, -0.2357, 0));
@@ -97,24 +99,24 @@ function onWindowResize() {
 }
 
 
-// function to reset all the animation whenever there is any changes in depth, iteration, speed or color
+// function to reset all the animation whenever there is any changes in the control panel
 function resetAndRecompute() {
-    if (animFlag) window.cancelAnimationFrame(animFrame);
+  if (animFlag) window.cancelAnimationFrame(animFrame);
 
-    animReset = true;
-    resetValue();  // reset theta, move, scaleNum, etc.
+  animReset = true;
+  resetValue();  // reset all the values
 
-    // get the latest selected operations
-    const selectedDiv = document.getElementById("selected-op");
-    selectedOperation = Array.from(selectedDiv.querySelectorAll("div")).map(c => c.textContent);
-    queueOperation();
+  // get the latest selected operations
+  const selectedDiv = document.getElementById("selected-op");
+  selectedOperation = Array.from(selectedDiv.querySelectorAll("div")).map(c => c.textContent);
+  queueOperation();
 
-    // recompute points/colors and render
-    recompute();
+  // recompute points, colors and render
+  recompute();
 
-    animReset = false;
+  animReset = false;
 
-    if (animFlag) animUpdate();  // restart animation if it was running
+  if (animFlag) animUpdate();  // restart animation if it is running
 }
 
 // Retrieve all elements from HTML and store in the corresponding variables, onclick thing will put here, although not sure why
@@ -131,42 +133,42 @@ function getUIElement() {
 
   // initialize dropdown checkboxes with default transitions
   document.querySelectorAll('.dropdown-content input[type="checkbox"]').forEach(box => {
-      // If the checkbox value is in defaults, check it visually
-      if (defaultTransitions.includes(box.value)) {
-          box.checked = true;
+    // If the checkbox value is in defaults, check it visually
+    if (defaultTransitions.includes(box.value)) {
+      box.checked = true;
+    }
+
+    // a listener for each checkbox to update selected operation
+    box.addEventListener('change', () => {
+      const selectedDiv = document.getElementById("selected-op");
+
+      // remove the item if it exists in the selected operation but the checkbox is unchecked
+      const existingItem = selectedDiv.querySelector(`[data-value="${box.value}"]`);
+      if (!box.checked && existingItem) {
+        existingItem.remove();
       }
 
-      // Listen for changes
-      box.addEventListener('change', () => {
-          const selectedDiv = document.getElementById("selected-op");
+      // if new operation is checked but not yet added in the existing operation, add it
+      if (box.checked && !existingItem) {
+        const div = document.createElement("div");
+        div.setAttribute("data-value", box.value);
+        div.innerText = box.value;
+        selectedDiv.appendChild(div);
+      }
 
-          // Remove the item if it exists
-          const existingItem = selectedDiv.querySelector(`[data-value="${box.value}"]`);
-          if (!box.checked && existingItem) {
-              existingItem.remove();
-          }
-
-          // Add the item if checked and not already present
-          if (box.checked && !existingItem) {
-              const div = document.createElement("div");
-              div.setAttribute("data-value", box.value);
-              div.innerText = box.value;
-              selectedDiv.appendChild(div);
-          }
-
-          // Reset animation whenever checkbox changes
-          resetAndRecompute();
-      });
+      // reset animation whenever checkbox changes
+      resetAndRecompute();
+    });
   });
 
   // On page load, populate selectedOperation with default checked items
   const selectedDiv = document.getElementById("selected-op");
   selectedDiv.innerHTML = ""; // clear any previous content
   document.querySelectorAll('.dropdown-content input[type="checkbox"]:checked').forEach(box => {
-      const div = document.createElement("div");
-      div.setAttribute("data-value", box.value);
-      div.innerText = box.value;
-      selectedDiv.appendChild(div);
+    const div = document.createElement("div");
+    div.setAttribute("data-value", box.value);
+    div.innerText = box.value;
+    selectedDiv.appendChild(div);
   });
 
 
@@ -198,13 +200,13 @@ function getUIElement() {
 
   // keydown for spacebar to start or pause the animation
   window.addEventListener("keydown", function(event) {
-      // Avoid triggering when typing in input fields
-      if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
+    // avoid trigger it when typing in input fields
+    if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
 
-      if (event.code === "Space") {
-          event.preventDefault();
-          startBtn.onclick();
-      }
+    if (event.code === "Space") {
+      event.preventDefault();
+      startBtn.onclick();
+    }
   });
 
   // Activate when click on restart button
@@ -796,29 +798,29 @@ function getColor(event) {
       button.textContent = "Delete";
 
       button.addEventListener("click", () => {
-          // Remove from DOM
-          list.remove();
+        // Remove from DOM
+        list.remove();
 
-          // Remove from baseColors using value, safer than using i
-          const index = baseColors.indexOf(vec);
-          if (index > -1) baseColors.splice(index, 1);
+        // Remove from baseColors using value, safer than using i
+        const index = baseColors.indexOf(vec);
+        if (index > -1) baseColors.splice(index, 1);
 
-          // Clear old points/colors before reloading
-          points = [];
-          colors = [];
+        // Clear old points/colors before reloading
+        points = [];
+        colors = [];
 
-          if (baseColors.length === 0) {
-            baseColors = [
-              vec4(1.0, 0.2, 0.4, 1.0),
-              vec4(0.0, 0.9, 1.0, 1.0),
-              vec4(0.2, 0.2, 0.5, 1.0),
-            ];
-          }
+        if (baseColors.length === 0) {
+          baseColors = [
+            vec4(1.0, 0.2, 0.4, 1.0),
+            vec4(0.0, 0.9, 1.0, 1.0),
+            vec4(0.2, 0.2, 0.5, 1.0),
+          ];
+        }
 
-          // Reload the logo with updated colors
-          loadLogo(logo);
+        // Reload the logo with updated colors
+        loadLogo(logo);
 
-          console.log("baseColors after delete:", baseColors);
+        console.log("baseColors after delete:", baseColors);
       });
 
       list.appendChild(button);
@@ -834,14 +836,14 @@ function getColor(event) {
 // Convert hex color value to rgb
 function hex2rgb(hex) {
 
-    const opacity = 1.0;
+  const opacity = 1.0;
 
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
-    
-    // return {r, g, b} 
-    return vec4(r, g, b, opacity);
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  
+  // return {r, g, b} 
+  return vec4(r, g, b, opacity);
 }
 
 // Convert hex rgb value to hex here
@@ -860,72 +862,72 @@ let currentFont = null;
 
 // 1. Call this once in your init() to load the font file
 function initFont(fontUrl) {
-    opentype.load(fontUrl, function(err, font) {
-        if (err) {
-            console.error('Font could not be loaded: ' + err);
-        } else {
-            currentFont = font;
-            // Load default text once font is ready
-            updateTextGeometry("YSQD"); 
-        }
-    });
+  opentype.load(fontUrl, function(err, font) {
+    if (err) {
+      console.error('Font could not be loaded: ' + err);
+    } else {
+      currentFont = font;
+      // Load default text once font is ready
+      updateTextGeometry("YSQD"); 
+    }
+  });
 }
 
 // 2. Call this whenever the user inputs new text
 function updateTextGeometry(textString) {
-    if (!currentFont) return;
+  if (!currentFont) return;
 
-    points = []; 
-    colors = [];
-    let zValue = [];
-    let layerSpace = depth/layerNum;
+  points = []; 
+  colors = [];
+  let zValue = [];
+  let layerSpace = depth/layerNum;
 
-    zValue.push(0.0);
-    for (let i=0; i<(layerNum/2); i++) {
-      zValue.push(i*layerSpace);
-      zValue.push(-i * layerSpace);
-    }
+  zValue.push(0.0);
+  for (let i=0; i<(layerNum/2); i++) {
+    zValue.push(i*layerSpace);
+    zValue.push(-i * layerSpace);
+  }
 
 
-    // const frontqZ = depth/2;
-    // const backZ = -depth/2;
-    // CHANGE 1: Generate text at 0,0. Let the helper function handle positioning later.
-    // 4 is the fontSize (scale), you can adjust this number to match your OBJ size.
-    const path = currentFont.getPath(textString, 0, 0, textSize/2); 
-    
-    const contours = convertPathToContours(path);
+  // const frontqZ = depth/2;
+  // const backZ = -depth/2;
+  // CHANGE 1: Generate text at 0,0. Let the helper function handle positioning later.
+  // 4 is the fontSize (scale), you can adjust this number to match your OBJ size.
+  const path = currentFont.getPath(textString, 0, 0, textSize/2); 
+  
+  const contours = convertPathToContours(path);
 
-    contours.forEach(contour => {
-      const flatPoints = contour.flatMap(p => [p.x, p.y]);
-      const indices = earcut(flatPoints);
+  contours.forEach(contour => {
+    const flatPoints = contour.flatMap(p => [p.x, p.y]);
+    const indices = earcut(flatPoints);
 
-      for (let i = 0; i < indices.length; i += 3) {
-        const idxA = indices[i];
-        const idxB = indices[i + 1];
-        const idxC = indices[i + 2];
+    for (let i = 0; i < indices.length; i += 3) {
+      const idxA = indices[i];
+      const idxB = indices[i + 1];
+      const idxC = indices[i + 2];
 
-        for (let k=0; k<layerNum; k++) {
-          const v1 = vec4(contour[idxA].x, contour[idxA].y, zValue[k], 1.0);
-          const v2 = vec4(contour[idxB].x, contour[idxB].y, zValue[k], 1.0);
-          const v3 = vec4(contour[idxC].x, contour[idxC].y, zValue[k], 1.0);
-          points.push(v1, v2, v3);
+      for (let k=0; k<layerNum; k++) {
+        const v1 = vec4(contour[idxA].x, contour[idxA].y, zValue[k], 1.0);
+        const v2 = vec4(contour[idxB].x, contour[idxB].y, zValue[k], 1.0);
+        const v3 = vec4(contour[idxC].x, contour[idxC].y, zValue[k], 1.0);
+        points.push(v1, v2, v3);
 
-          // --- 3. Colors ---
-          // FIX B: You added 6 vertices (v1...v6), so you must add 6 colors!
-          for (let k = 0; k < 6; k++) {
-              // Use % to cycle safely through your baseColors list
-              let colorIndex = (points.length + k) % baseColors.length;
-              colors.push(baseColors[colorIndex]);
-          }
+        // --- 3. Colors ---
+        // FIX B: You added 6 vertices (v1...v6), so you must add 6 colors!
+        for (let k = 0; k < 6; k++) {
+          // Use % to cycle safely through your baseColors list
+          let colorIndex = (points.length + k) % baseColors.length;
+          colors.push(baseColors[colorIndex]);
         }
-      }        
-    });
+      }
+    }        
+  });
 
-    // CHANGE 2: Call the centering function here!
-    centerVertices(points);
+  // CHANGE 2: Call the centering function here!
+  centerVertices(points);
 
-    configWebGL();
-    render();
+  configWebGL();
+  render();
 }
 
 // Helper: Converts Font commands (Curves) into simple X/Y points
@@ -934,20 +936,20 @@ function convertPathToContours(path) {
     let currentContour = [];
 
     path.commands.forEach(cmd => {
-        if (cmd.type === 'M') { // Move to (Start of new shape)
-            if (currentContour.length > 0) {
-                contours.push(currentContour);
-            }
-            currentContour = [{x: cmd.x, y: -cmd.y}]; // Flip Y for WebGL
-        } else if (cmd.type === 'L') { // Line
-            currentContour.push({x: cmd.x, y: -cmd.y});
-        } else if (cmd.type === 'Q') { // Quadratic Curve (simplify to line)
-            currentContour.push({x: cmd.x, y: -cmd.y}); 
-        } else if (cmd.type === 'C') { // Cubic Curve (simplify to line)
-             currentContour.push({x: cmd.x, y: -cmd.y});
-        } else if (cmd.type === 'Z') { // Close path
-             // shape finished
+      if (cmd.type === 'M') { // Move to (Start of new shape)
+        if (currentContour.length > 0) {
+            contours.push(currentContour);
         }
+        currentContour = [{x: cmd.x, y: -cmd.y}]; // Flip Y for WebGL
+      } else if (cmd.type === 'L') { // Line
+        currentContour.push({x: cmd.x, y: -cmd.y});
+      } else if (cmd.type === 'Q') { // Quadratic Curve (simplify to line)
+        currentContour.push({x: cmd.x, y: -cmd.y}); 
+      } else if (cmd.type === 'C') { // Cubic Curve (simplify to line)
+        currentContour.push({x: cmd.x, y: -cmd.y});
+      } else if (cmd.type === 'Z') { // Close path
+        // shape finished
+      }
     });
     if (currentContour.length > 0) contours.push(currentContour);
     return contours;
@@ -957,45 +959,45 @@ function convertPathToContours(path) {
 const userInput = document.getElementById("userText");
 userInput.addEventListener("keydown", function(event) {
   if (event.key === "Enter") {
-      loadLogo(); // load new logo text based on user input
-      resetAndRecompute();// reset animation once new input is given
+    loadLogo(); // load new logo text based on user input
+    resetAndRecompute();// reset animation once new input is given
   }
 });
 
 function loadLogo() {
-    const text = document.getElementById('userText').value;
-    updateTextGeometry(text);
+  const text = document.getElementById('userText').value;
+  updateTextGeometry(text);
 }
 
 function centerVertices(points) {
-    if (points.length === 0) return;
+  if (points.length === 0) return;
 
-    // 1. Initialize min/max with the first point's coordinates
-    let minX = points[0][0];
-    let maxX = points[0][0];
-    let minY = points[0][1];
-    let maxY = points[0][1];
+  // 1. Initialize min/max with the first point's coordinates
+  let minX = points[0][0];
+  let maxX = points[0][0];
+  let minY = points[0][1];
+  let maxY = points[0][1];
 
-    // 2. Find the bounding box (min and max X/Y)
-    for (let i = 1; i < points.length; i++) {
-        let x = points[i][0];
-        let y = points[i][1];
+  // 2. Find the bounding box (min and max X/Y)
+  for (let i = 1; i < points.length; i++) {
+    let x = points[i][0];
+    let y = points[i][1];
 
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-    }
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
 
-    // 3. Calculate the center of the text
-    let centerX = (minX + maxX) / 2;
-    let centerY = (minY + maxY) / 2;
+  // 3. Calculate the center of the text
+  let centerX = (minX + maxX) / 2;
+  let centerY = (minY + maxY) / 2;
 
-    // 4. Shift all points so the center becomes (0,0)
-    for (let i = 0; i < points.length; i++) {
-        points[i][0] -= centerX;
-        points[i][1] -= centerY;
-    }
+  // 4. Shift all points so the center becomes (0,0)
+  for (let i = 0; i < points.length; i++) {
+    points[i][0] -= centerX;
+    points[i][1] -= centerY;
+  }
 }
 
 /*-----------------------------------------------------------------------------------*/
