@@ -234,12 +234,10 @@ function getUIElement() {
     resetAndRecompute();
   }
 
-  // Activate when depth slider change value. and get value
+  // Activate when depth slider change value and get value
   depthSlider = document.getElementById("depth-slider");
   depthValue = document.getElementById("depth-value");
-  depthSlider.value = 2;
-  depthValue.innerHTML = "2";
-  depth = 2 / 10;
+  depthValue.innerHTML = depthSlider.value;
 
   depthSlider.onchange = function(event) {
     depthValue.innerHTML = event.target.value;
@@ -250,9 +248,6 @@ function getUIElement() {
   // Activate when depth slider change value. and get value
   speedSlider = document.getElementById("speed-slider");
   speedValue = document.getElementById("speed-value");
-  speedSlider.value = 3;
-  speedValue.innerHTML = "3";
-  speedMultiplier = 3;
 
   speedSlider.oninput = function(event) {
     speedValue.innerHTML = event.target.value;
@@ -387,7 +382,7 @@ function animUpdate() {
   // Switch case to handle the ongoing animation sequence
   // The animation is executed sequentially from case 0 to case n
 
-  if (currentOpIndex < operationQueue.length) {
+  if ((currentOpIndex < operationQueue.length) || (iterTemp < iterNum)) {
     animSeq = operationQueue[currentOpIndex];
 
     switch (animSeq) {
@@ -862,96 +857,47 @@ let currentFont = null;
 
 // 1. Call this once in your init() to load the font file
 function initFont(fontUrl) {
-  opentype.load(fontUrl, function(err, font) {
-    if (err) {
-      console.error('Font could not be loaded: ' + err);
-    } else {
-      currentFont = font;
-      // Load default text once font is ready
-      updateTextGeometry("YSQD"); 
-    }
-  });
+    opentype.load(fontUrl, function(err, font) {
+        if (err) {
+            console.error('Font could not be loaded: ' + err);
+        } else {
+            currentFont = font;
+            // Load default text once font is ready
+            updateTextGeometry("YSQD"); 
+        }
+    });
 }
 
 // 2. Call this whenever the user inputs new text
-function updateTextGeometry(textString) {
-  if (!currentFont) return;
-
-  points = []; 
-  colors = [];
-  let zValue = [];
-  let layerSpace = depth/layerNum;
-
-  zValue.push(0.0);
-  for (let i=0; i<(layerNum/2); i++) {
-    zValue.push(i*layerSpace);
-    zValue.push(-i * layerSpace);
-  }
-
-
-  // const frontqZ = depth/2;
-  // const backZ = -depth/2;
-  // CHANGE 1: Generate text at 0,0. Let the helper function handle positioning later.
-  // 4 is the fontSize (scale), you can adjust this number to match your OBJ size.
-  const path = currentFont.getPath(textString, 0, 0, textSize/2); 
-  
-  const contours = convertPathToContours(path);
-
-  contours.forEach(contour => {
-    const flatPoints = contour.flatMap(p => [p.x, p.y]);
-    const indices = earcut(flatPoints);
-
-    for (let i = 0; i < indices.length; i += 3) {
-      const idxA = indices[i];
-      const idxB = indices[i + 1];
-      const idxC = indices[i + 2];
-
-      for (let k=0; k<layerNum; k++) {
-        const v1 = vec4(contour[idxA].x, contour[idxA].y, zValue[k], 1.0);
-        const v2 = vec4(contour[idxB].x, contour[idxB].y, zValue[k], 1.0);
-        const v3 = vec4(contour[idxC].x, contour[idxC].y, zValue[k], 1.0);
-        points.push(v1, v2, v3);
-
-        // --- 3. Colors ---
-        // FIX B: You added 6 vertices (v1...v6), so you must add 6 colors!
-        for (let k = 0; k < 6; k++) {
-          // Use % to cycle safely through your baseColors list
-          let colorIndex = (points.length + k) % baseColors.length;
-          colors.push(baseColors[colorIndex]);
-        }
-      }
-    }        
-  });
-
-  // CHANGE 2: Call the centering function here!
-  centerVertices(points);
-
-  configWebGL();
-  render();
-}
-
-// Helper: Converts Font commands (Curves) into simple X/Y points
+// 1. UPDATED: Helper to parse font commands into "Solid" and "Hole" data
 function convertPathToContours(path) {
     const contours = [];
     let currentContour = [];
 
     path.commands.forEach(cmd => {
-      if (cmd.type === 'M') { // Move to (Start of new shape)
-        if (currentContour.length > 0) {
-            contours.push(currentContour);
+        if (cmd.type === 'M') { // Move to = start new contour
+            if (currentContour.length > 0) {
+                contours.push(currentContour);
+            }
+            currentContour = [{ x: cmd.x, y: -cmd.y }];
         }
-        currentContour = [{x: cmd.x, y: -cmd.y}]; // Flip Y for WebGL
-      } else if (cmd.type === 'L') { // Line
-        currentContour.push({x: cmd.x, y: -cmd.y});
-      } else if (cmd.type === 'Q') { // Quadratic Curve (simplify to line)
-        currentContour.push({x: cmd.x, y: -cmd.y}); 
-      } else if (cmd.type === 'C') { // Cubic Curve (simplify to line)
-        currentContour.push({x: cmd.x, y: -cmd.y});
-      } else if (cmd.type === 'Z') { // Close path
-        // shape finished
-      }
+        else if (cmd.type === 'L') { // Line
+            currentContour.push({ x: cmd.x, y: -cmd.y });
+        }
+        else if (cmd.type === 'Q') { // Quadratic - simplified as line
+            currentContour.push({ x: cmd.x, y: -cmd.y });
+        }
+        else if (cmd.type === 'C') { // Cubic - simplified as line
+            currentContour.push({ x: cmd.x, y: -cmd.y });
+        }
+        else if (cmd.type === 'Z') { // Close path
+            // do nothing, contour ends
+        }
     });
-    if (currentContour.length > 0) contours.push(currentContour);
+
+    if (currentContour.length > 0)
+        contours.push(currentContour);
+
     return contours;
 }
 
@@ -963,6 +909,117 @@ userInput.addEventListener("keydown", function(event) {
     resetAndRecompute();// reset animation once new input is given
   }
 });
+// 3. NEW HELPER: Calculates if a shape is CW or CCW (Solid or Hole)
+function getSignedArea(contour) {
+    let area = 0;
+    for (let i = 0; i < contour.length; i++) {
+        let j = (i + 1) % contour.length;
+        area += (contour[j].x - contour[i].x) * (contour[j].y + contour[i].y);
+    }
+    return area;
+}
+
+// 2. UPDATED: Main generation function with ROBUST Hole detection
+function updateTextGeometry(textString) {
+    if (!currentFont) return;
+
+    points = []; 
+    colors = [];
+
+    // --- Z-Depth Setup ---
+    let zLayers = [];
+    let startZ = depth / 2;
+    // Safety check for layerNum
+    let step = layerNum > 1 ? depth / (layerNum - 1) : 0; 
+    for (let i = 0; i < layerNum; i++) zLayers.push(startZ - (i * step));
+
+    const charPaths = currentFont.getPaths(textString, 0, 0, textSize/2);
+
+    charPaths.forEach(path => {
+        const contours = convertPathToContours(path);
+        if (contours.length === 0) return;
+
+        // --- NEW HOLE LOGIC ---
+        // We separate contours into "Shapes" and "Holes" based on their Area.
+        // Usually: Solid = Negative Area (because of y-flip), Hole = Positive Area.
+        
+        // 1. Group contours by solid/hole
+        // We assume the largest contour is a Solid to establish the baseline sign.
+        let solids = [];
+        let holes = [];
+        
+        // Sort by size so we find the main body first
+        contours.sort((a, b) => Math.abs(getSignedArea(b)) - Math.abs(getSignedArea(a)));
+
+        // The biggest one is definitely a solid
+        let solidSign = Math.sign(getSignedArea(contours[0]));
+        
+        contours.forEach(contour => {
+            let area = getSignedArea(contour);
+            if (Math.sign(area) === solidSign) {
+                solids.push(contour);
+            } else {
+                holes.push(contour);
+            }
+        });
+
+        // 2. Process each Solid (and apply relevant holes)
+        // Note: For simple text, we can usually dump all holes into the current solid.
+        // A robust engine would check which hole is inside which solid, 
+        // but for standard fonts, assigning all holes to the main solid works 99% of the time.
+        
+        solids.forEach(solid => {
+            let flatPoints = [];
+            let holeIndices = [];
+            let currentIndex = 0;
+
+            // Add the Solid
+            solid.forEach(p => {
+                flatPoints.push(p.x, p.y);
+                currentIndex += 2;
+            });
+
+            // Add ALL holes (simple approach)
+            holes.forEach(hole => {
+                holeIndices.push(currentIndex / 2);
+                hole.forEach(p => {
+                    flatPoints.push(p.x, p.y);
+                    currentIndex += 2;
+                });
+            });
+
+            // Triangulate
+            const indices = earcut(flatPoints, holeIndices);
+
+            // Build 3D Mesh
+            for (let i = 0; i < indices.length; i += 3) {
+                const idxA = indices[i];
+                const idxB = indices[i + 1];
+                const idxC = indices[i + 2];
+
+                const ax = flatPoints[idxA * 2]; const ay = flatPoints[idxA * 2 + 1];
+                const bx = flatPoints[idxB * 2]; const by = flatPoints[idxB * 2 + 1];
+                const cx = flatPoints[idxC * 2]; const cy = flatPoints[idxC * 2 + 1];
+
+                for (let k = 0; k < layerNum; k++) {
+                    let z = zLayers[k];
+                    points.push(vec4(ax, ay, z, 1.0));
+                    points.push(vec4(bx, by, z, 1.0));
+                    points.push(vec4(cx, cy, z, 1.0));
+
+                    for (let c = 0; c < 3; c++) {
+                        let colorIndex = (points.length + c) % baseColors.length;
+                        colors.push(baseColors[colorIndex]);
+                    }
+                }
+            }
+        });
+    });
+
+    centerVertices(points);
+    configWebGL();
+    render(false); 
+}
 
 function loadLogo() {
   const text = document.getElementById('userText').value;
